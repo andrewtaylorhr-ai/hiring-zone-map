@@ -39,6 +39,30 @@ def close_ring(ring):
         ring.append(ring[0])
     return ring
 
+def geometry_coords(geometry):
+    if geometry['type'] == 'Polygon':
+        return geometry['coordinates'][0]
+    if geometry['type'] == 'MultiPolygon':
+        pts = []
+        for poly in geometry['coordinates']:
+            pts.extend(poly[0])
+        return pts
+    if geometry['type'] == 'Point':
+        return [geometry['coordinates']]
+    return []
+
+def max_extent_miles(center_latlon, geometry):
+    if not center_latlon:
+        return 0
+    clat, clon = center_latlon
+    coords = geometry_coords(geometry)
+    if not coords:
+        return 0
+    lons = [c[0] for c in coords]
+    lats = [c[1] for c in coords]
+    _, _, dists = geod.inv([clon] * len(lons), [clat] * len(lats), lons, lats)
+    return round(max(dists) / 1609.344, 1) if dists else 0
+
 features = []
 skipped = 0
 
@@ -74,6 +98,7 @@ for pkl_path, carrier in SOURCES:
             skipped += 1
             continue
 
+        props['size_mi'] = max_extent_miles(center, geometry)
         features.append({'type': 'Feature', 'geometry': geometry, 'properties': props})
 
 fc = {'type': 'FeatureCollection', 'features': features}

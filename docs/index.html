@@ -24,7 +24,16 @@
     width: 100%; padding: 6px 8px; box-sizing: border-box; border: 1px solid #ccc;
     border-radius: 6px; font-size: 13px; margin-bottom: 4px;
   }
-  #count { font-size: 12px; color: #666; margin-top: 8px; }
+  #count { font-size: 12px; color: #666; margin-top: 4px; margin-bottom: 6px; }
+  #resultsList { max-height: 340px; overflow-y: auto; border-top: 1px solid #eee; }
+  .result-row {
+    display: flex; align-items: center; gap: 7px; padding: 5px 4px; font-size: 12.5px;
+    cursor: pointer; border-radius: 4px; border-bottom: 1px solid #f4f4f4;
+  }
+  .result-row:hover { background: #f2f2f2; }
+  .result-row .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .result-row .rname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .result-row .rcarrier { font-size: 10.5px; color: #999; flex-shrink: 0; }
   .btn-row { display: flex; gap: 6px; margin-bottom: 8px; }
   .btn-row button {
     flex: 1; font-size: 12px; padding: 5px; border: 1px solid #ccc; background: #f7f7f7;
@@ -84,7 +93,11 @@
       </select>
     </div>
 
-    <div id="count"></div>
+    <div class="section" id="resultsSection">
+      <h2>Results</h2>
+      <div id="count"></div>
+      <div id="resultsList"></div>
+    </div>
   </div>
   <div id="map"></div>
 </div>
@@ -99,11 +112,14 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 18,
 }).addTo(map);
 
+const LARGE_RADIUS_MI = 150;
+
 const state = { carriers: new Set(), categories: new Set(), stateFilter: '', search: '', zip: null };
 let allFeatures = [];
 let geoLayer = null;
 let zipLookup = {};
 let zipMarker = null;
+let featureLayerMap = new Map();
 
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -169,20 +185,61 @@ function passesFilters(feature) {
 
 function styleFor(props) {
   const color = CATEGORY_COLORS[props.category] || '#777777';
+  if (props.size_mi > LARGE_RADIUS_MI) {
+    return { color, weight: 1.5, fill: true, fillOpacity: 0, dashArray: '5,5' };
+  }
   return { color, weight: 1.5, fillColor: color, fillOpacity: 0.28 };
+}
+
+function highlightLayer(layer) {
+  if (layer.setStyle) layer.setStyle({ weight: 3.5 });
+  if (layer.bringToFront) layer.bringToFront();
+  setTimeout(() => { if (layer.setStyle) layer.setStyle({ weight: 1.5 }); }, 1600);
+}
+
+function zoomToFeature(f) {
+  const layer = featureLayerMap.get(f);
+  if (!layer) return;
+  if (layer.getBounds) map.fitBounds(layer.getBounds(), { maxZoom: 9 });
+  else if (layer.getLatLng) map.setView(layer.getLatLng(), 9);
+  layer.openPopup();
+  highlightLayer(layer);
+}
+
+function buildResultsList(features) {
+  const container = document.getElementById('resultsList');
+  container.innerHTML = '';
+  const sorted = [...features].sort((a, b) =>
+    a.properties.category.localeCompare(b.properties.category) ||
+    a.properties.account.localeCompare(b.properties.account));
+  sorted.forEach(f => {
+    const props = f.properties;
+    const row = document.createElement('div');
+    row.className = 'result-row';
+    const color = CATEGORY_COLORS[props.category] || '#777777';
+    row.innerHTML = `
+      <span class="dot" style="background:${color}"></span>
+      <span class="rname" title="${escapeHtml(props.account)}">${escapeHtml(props.account)}</span>
+      <span class="rcarrier">${escapeHtml(props.carrier)}</span>
+    `;
+    row.addEventListener('click', () => zoomToFeature(f));
+    container.appendChild(row);
+  });
 }
 
 function render() {
   if (geoLayer) map.removeLayer(geoLayer);
+  featureLayerMap = new Map();
   let shown = 0;
-  let matched = [];
+  let resultsFeatures = [];
   geoLayer = L.geoJSON(allFeatures, {
     filter: f => passesFilters(f),
     style: f => styleFor(f.properties),
     pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, ...styleFor(f.properties) }),
     onEachFeature: (f, layer) => {
       shown++;
-      matched.push(f);
+      resultsFeatures.push(f);
+      featureLayerMap.set(f, layer);
       layer.bindPopup(popupHtml(f.properties));
     },
   }).addTo(map);
@@ -201,7 +258,8 @@ function render() {
         .slice(0, 8);
       nearest.forEach(({ f }) => {
         const layer = L.geoJSON(f, { style: () => styleFor(f.properties), pointToLayer: (ff, latlng) => L.circleMarker(latlng, { radius: 5, ...styleFor(f.properties) }) });
-        layer.eachLayer(l => { l.bindPopup(popupHtml(f.properties)); geoLayer.addLayer(l); });
+        layer.eachLayer(l => { l.bindPopup(popupHtml(f.properties)); geoLayer.addLayer(l); featureLayerMap.set(f, l); });
+        resultsFeatures.push(f);
         shown++;
       });
       const nearestDist = nearest.length ? nearest[0].dist.toFixed(0) : null;
@@ -214,6 +272,8 @@ function render() {
     msgEl.textContent = '';
     document.getElementById('count').textContent = `${shown} account${shown === 1 ? '' : 's'} shown`;
   }
+
+  buildResultsList(resultsFeatures);
 }
 
 function passesFiltersIgnoringZip(feature) {
