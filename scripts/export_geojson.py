@@ -16,6 +16,7 @@ SOURCES = [
     ('records_pam.pkl', 'PAM'),
     ('records_jbh.pkl', 'J.B. Hunt'),
     ('records_transam.pkl', 'TransAm'),
+    ('records_usx.pkl', 'US Express'),
 ]
 
 CATEGORY_COLORS = {
