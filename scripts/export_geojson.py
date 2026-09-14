@@ -13,6 +13,7 @@ OUT_PATH = sys.argv[1] if len(sys.argv) > 1 else '../site/data.geojson'
 SOURCES = [
     ('records.pkl', 'Swift'),
     ('records_cre2.pkl', 'CR England'),
+    ('records_pam.pkl', 'PAM'),
 ]
 
 CATEGORY_COLORS = {
