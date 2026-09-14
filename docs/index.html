@@ -55,7 +55,8 @@
 
     <div class="section">
       <h2>Search</h2>
-      <input id="search" type="text" placeholder="Search account or city...">
+      <input id="search" type="text" placeholder="Search account, city, or ZIP code...">
+      <div id="searchMsg" style="font-size:12px;color:#666;"></div>
     </div>
 
     <div class="section">
@@ -98,12 +99,48 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 18,
 }).addTo(map);
 
-const state = { carriers: new Set(), categories: new Set(), stateFilter: '', search: '' };
+const state = { carriers: new Set(), categories: new Set(), stateFilter: '', search: '', zip: null };
 let allFeatures = [];
 let geoLayer = null;
+let zipLookup = {};
+let zipMarker = null;
 
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---- Point-in-polygon / distance helpers (GeoJSON coords are [lon, lat]) ----
+function pointInRing(pt, ring) {
+  const [x, y] = pt;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+function pointInPolygon(pt, coords) {
+  if (!pointInRing(pt, coords[0])) return false;
+  for (let i = 1; i < coords.length; i++) if (pointInRing(pt, coords[i])) return false;
+  return true;
+}
+function pointInGeometry(pt, geometry) {
+  if (!geometry) return false;
+  if (geometry.type === 'Polygon') return pointInPolygon(pt, geometry.coordinates);
+  if (geometry.type === 'MultiPolygon') return geometry.coordinates.some(poly => pointInPolygon(pt, poly));
+  if (geometry.type === 'Point') return haversineMiles(pt, geometry.coordinates) <= 10;
+  return false;
+}
+function haversineMiles(a, b) {
+  // a, b are [lon, lat]
+  const R = 3958.8;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(b[1] - a[1]);
+  const dLon = toRad(b[0] - a[0]);
+  const lat1 = toRad(a[1]), lat2 = toRad(b[1]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(h));
 }
 
 function popupHtml(props) {
@@ -116,11 +153,14 @@ function popupHtml(props) {
   `;
 }
 
-function passesFilters(props) {
+function passesFilters(feature) {
+  const props = feature.properties;
   if (state.carriers.size && !state.carriers.has(props.carrier)) return false;
   if (state.categories.size && !state.categories.has(props.category)) return false;
   if (state.stateFilter && !(props.hiring_states || []).includes(state.stateFilter)) return false;
-  if (state.search) {
+  if (state.zip) {
+    if (!pointInGeometry(state.zip.coord, feature.geometry)) return false;
+  } else if (state.search) {
     const hay = (props.account + ' ' + props.description).toLowerCase();
     if (!hay.includes(state.search)) return false;
   }
@@ -135,16 +175,53 @@ function styleFor(props) {
 function render() {
   if (geoLayer) map.removeLayer(geoLayer);
   let shown = 0;
+  let matched = [];
   geoLayer = L.geoJSON(allFeatures, {
-    filter: f => passesFilters(f.properties),
+    filter: f => passesFilters(f),
     style: f => styleFor(f.properties),
     pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, ...styleFor(f.properties) }),
     onEachFeature: (f, layer) => {
       shown++;
+      matched.push(f);
       layer.bindPopup(popupHtml(f.properties));
     },
   }).addTo(map);
-  document.getElementById('count').textContent = `${shown} account${shown === 1 ? '' : 's'} shown`;
+
+  const msgEl = document.getElementById('searchMsg');
+  if (state.zip) {
+    if (shown > 0) {
+      msgEl.textContent = `${shown} account${shown === 1 ? ' covers' : 's cover'} ZIP ${state.zip.code}`;
+      document.getElementById('count').textContent = `${shown} account${shown === 1 ? '' : 's'} shown`;
+    } else {
+      // No exact shape covers this ZIP — fall back to nearest accounts by center distance
+      const withCenter = allFeatures.filter(f => f.properties.center && passesFiltersIgnoringZip(f));
+      const nearest = withCenter
+        .map(f => ({ f, dist: haversineMiles(state.zip.coord, [f.properties.center[1], f.properties.center[0]]) }))
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, 8);
+      nearest.forEach(({ f }) => {
+        const layer = L.geoJSON(f, { style: () => styleFor(f.properties), pointToLayer: (ff, latlng) => L.circleMarker(latlng, { radius: 5, ...styleFor(f.properties) }) });
+        layer.eachLayer(l => { l.bindPopup(popupHtml(f.properties)); geoLayer.addLayer(l); });
+        shown++;
+      });
+      const nearestDist = nearest.length ? nearest[0].dist.toFixed(0) : null;
+      msgEl.textContent = nearest.length
+        ? `No shape covers ZIP ${state.zip.code} — showing ${nearest.length} nearest accounts (closest ~${nearestDist} mi away)`
+        : `No accounts found near ZIP ${state.zip.code}`;
+      document.getElementById('count').textContent = `${shown} account${shown === 1 ? '' : 's'} shown (nearest match)`;
+    }
+  } else {
+    msgEl.textContent = '';
+    document.getElementById('count').textContent = `${shown} account${shown === 1 ? '' : 's'} shown`;
+  }
+}
+
+function passesFiltersIgnoringZip(feature) {
+  const props = feature.properties;
+  if (state.carriers.size && !state.carriers.has(props.carrier)) return false;
+  if (state.categories.size && !state.categories.has(props.category)) return false;
+  if (state.stateFilter && !(props.hiring_states || []).includes(state.stateFilter)) return false;
+  return true;
 }
 
 function buildCheckboxList(containerId, values, targetSet) {
@@ -168,10 +245,13 @@ function buildCheckboxList(containerId, values, targetSet) {
   });
 }
 
-fetch('data.geojson')
-  .then(r => r.json())
-  .then(fc => {
+Promise.all([
+  fetch('data.geojson').then(r => r.json()),
+  fetch('zips.json').then(r => r.json()),
+])
+  .then(([fc, zips]) => {
     allFeatures = fc.features;
+    zipLookup = zips;
     const carriers = [...new Set(allFeatures.map(f => f.properties.carrier))].sort();
     const categories = [...new Set(allFeatures.map(f => f.properties.category))].sort();
     const states = [...new Set(allFeatures.flatMap(f => f.properties.hiring_states || []))].sort();
@@ -188,7 +268,32 @@ fetch('data.geojson')
     stateSelect.addEventListener('change', e => { state.stateFilter = e.target.value; render(); });
 
     document.getElementById('search').addEventListener('input', e => {
-      state.search = e.target.value.trim().toLowerCase();
+      const raw = e.target.value.trim();
+      const msgEl = document.getElementById('searchMsg');
+
+      if (/^\d{5}$/.test(raw)) {
+        const coordLatLon = zipLookup[raw];
+        if (coordLatLon) {
+          state.zip = { code: raw, coord: [coordLatLon[1], coordLatLon[0]] };
+          state.search = '';
+          if (zipMarker) map.removeLayer(zipMarker);
+          zipMarker = L.marker([coordLatLon[0], coordLatLon[1]], {
+            icon: L.divIcon({ className: '', html: '<div style="width:14px;height:14px;border-radius:50%;background:#111;border:2px solid #fff;box-shadow:0 0 0 2px #111;"></div>', iconSize: [14, 14] }),
+          }).addTo(map);
+          map.setView([coordLatLon[0], coordLatLon[1]], 8);
+        } else {
+          state.zip = null;
+          state.search = '';
+          if (zipMarker) { map.removeLayer(zipMarker); zipMarker = null; }
+          render();
+          msgEl.textContent = `ZIP ${raw} not found`;
+          return;
+        }
+      } else {
+        state.zip = null;
+        state.search = raw.toLowerCase();
+        if (zipMarker) { map.removeLayer(zipMarker); zipMarker = null; }
+      }
       render();
     });
 
