@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CDL-A Hiring Zone Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  html, body { height: 100%; margin: 0; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+  #app { display: flex; height: 100%; }
+  #sidebar {
+    width: 300px; flex-shrink: 0; background: #fff; border-right: 1px solid #ddd;
+    padding: 14px; overflow-y: auto; box-sizing: border-box; z-index: 1001;
+  }
+  #sidebar h1 { font-size: 17px; margin: 0 0 4px; }
+  #sidebar .subtitle { font-size: 12px; color: #666; margin-bottom: 14px; }
+  #map { flex: 1; }
+  .section { margin-bottom: 16px; }
+  .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #888; margin: 0 0 8px; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
+  .checkbox-row label { cursor: pointer; flex: 1; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+  #search, #stateFilter {
+    width: 100%; padding: 6px 8px; box-sizing: border-box; border: 1px solid #ccc;
+    border-radius: 6px; font-size: 13px; margin-bottom: 4px;
+  }
+  #count { font-size: 12px; color: #666; margin-top: 8px; }
+  .btn-row { display: flex; gap: 6px; margin-bottom: 8px; }
+  .btn-row button {
+    flex: 1; font-size: 12px; padding: 5px; border: 1px solid #ccc; background: #f7f7f7;
+    border-radius: 6px; cursor: pointer;
+  }
+  .btn-row button:hover { background: #eee; }
+  .leaflet-popup-content { font-size: 13px; max-width: 260px; }
+  .leaflet-popup-content b { font-size: 14px; }
+  .popup-meta { color: #555; margin: 4px 0; }
+  .popup-desc { margin-top: 6px; max-height: 140px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; }
+  #sidebar-toggle {
+    display: none; position: absolute; top: 10px; left: 10px; z-index: 1002;
+    background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 6px 10px; cursor: pointer;
+  }
+  @media (max-width: 720px) {
+    #sidebar { position: absolute; left: 0; top: 0; bottom: 0; transform: translateX(-100%); transition: transform .2s; }
+    #sidebar.open { transform: translateX(0); }
+    #sidebar-toggle { display: block; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <button id="sidebar-toggle">Filters</button>
+  <div id="sidebar">
+    <h1>CDL-A Hiring Zones</h1>
+    <div class="subtitle">Click a shape for account details. Use filters to narrow the map.</div>
+
+    <div class="section">
+      <h2>Search</h2>
+      <input id="search" type="text" placeholder="Search account or city...">
+    </div>
+
+    <div class="section">
+      <h2>Carrier</h2>
+      <div class="btn-row">
+        <button data-group="carrier" data-action="all">All</button>
+        <button data-group="carrier" data-action="none">None</button>
+      </div>
+      <div id="carrierList"></div>
+    </div>
+
+    <div class="section">
+      <h2>Category</h2>
+      <div class="btn-row">
+        <button data-group="category" data-action="all">All</button>
+        <button data-group="category" data-action="none">None</button>
+      </div>
+      <div id="categoryList"></div>
+    </div>
+
+    <div class="section">
+      <h2>State</h2>
+      <select id="stateFilter">
+        <option value="">All states</option>
+      </select>
+    </div>
+
+    <div id="count"></div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const CATEGORY_COLORS = { OTR: '#DB4436', Dedicated: '#3F5BA9', Local: '#009D57', Regional: '#F8971B' };
+
+const map = L.map('map', { preferCanvas: true }).setView([39.5, -98.35], 5);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 18,
+}).addTo(map);
+
+const state = { carriers: new Set(), categories: new Set(), stateFilter: '', search: '' };
+let allFeatures = [];
+let geoLayer = null;
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function popupHtml(props) {
+  const states = (props.hiring_states || []).join(', ');
+  const desc = escapeHtml(props.description).slice(0, 1200);
+  return `
+    <b>${escapeHtml(props.account)}</b>
+    <div class="popup-meta">${escapeHtml(props.carrier)} &middot; ${escapeHtml(props.category)}${states ? ' &middot; ' + escapeHtml(states) : ''}</div>
+    ${desc ? `<div class="popup-desc">${desc}</div>` : ''}
+  `;
+}
+
+function passesFilters(props) {
+  if (state.carriers.size && !state.carriers.has(props.carrier)) return false;
+  if (state.categories.size && !state.categories.has(props.category)) return false;
+  if (state.stateFilter && !(props.hiring_states || []).includes(state.stateFilter)) return false;
+  if (state.search) {
+    const hay = (props.account + ' ' + props.description).toLowerCase();
+    if (!hay.includes(state.search)) return false;
+  }
+  return true;
+}
+
+function styleFor(props) {
+  const color = CATEGORY_COLORS[props.category] || '#777777';
+  return { color, weight: 1.5, fillColor: color, fillOpacity: 0.28 };
+}
+
+function render() {
+  if (geoLayer) map.removeLayer(geoLayer);
+  let shown = 0;
+  geoLayer = L.geoJSON(allFeatures, {
+    filter: f => passesFilters(f.properties),
+    style: f => styleFor(f.properties),
+    pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 5, ...styleFor(f.properties) }),
+    onEachFeature: (f, layer) => {
+      shown++;
+      layer.bindPopup(popupHtml(f.properties));
+    },
+  }).addTo(map);
+  document.getElementById('count').textContent = `${shown} account${shown === 1 ? '' : 's'} shown`;
+}
+
+function buildCheckboxList(containerId, values, targetSet) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  values.forEach(v => {
+    const row = document.createElement('div');
+    row.className = 'checkbox-row';
+    const swatchColor = CATEGORY_COLORS[v] || '#999';
+    row.innerHTML = `
+      <input type="checkbox" id="chk-${containerId}-${v}" checked>
+      ${containerId === 'categoryList' ? `<span class="swatch" style="background:${swatchColor}"></span>` : ''}
+      <label for="chk-${containerId}-${v}">${escapeHtml(v)}</label>
+    `;
+    container.appendChild(row);
+    targetSet.add(v);
+    row.querySelector('input').addEventListener('change', e => {
+      if (e.target.checked) targetSet.add(v); else targetSet.delete(v);
+      render();
+    });
+  });
+}
+
+fetch('data.geojson')
+  .then(r => r.json())
+  .then(fc => {
+    allFeatures = fc.features;
+    const carriers = [...new Set(allFeatures.map(f => f.properties.carrier))].sort();
+    const categories = [...new Set(allFeatures.map(f => f.properties.category))].sort();
+    const states = [...new Set(allFeatures.flatMap(f => f.properties.hiring_states || []))].sort();
+
+    buildCheckboxList('carrierList', carriers, state.carriers);
+    buildCheckboxList('categoryList', categories, state.categories);
+
+    const stateSelect = document.getElementById('stateFilter');
+    states.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = s;
+      stateSelect.appendChild(opt);
+    });
+    stateSelect.addEventListener('change', e => { state.stateFilter = e.target.value; render(); });
+
+    document.getElementById('search').addEventListener('input', e => {
+      state.search = e.target.value.trim().toLowerCase();
+      render();
+    });
+
+    document.querySelectorAll('.btn-row button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const group = btn.dataset.group;
+        const listId = group === 'carrier' ? 'carrierList' : 'categoryList';
+        const targetSet = group === 'carrier' ? state.carriers : state.categories;
+        document.querySelectorAll(`#${listId} input[type=checkbox]`).forEach(cb => {
+          cb.checked = btn.dataset.action === 'all';
+        });
+        targetSet.clear();
+        if (btn.dataset.action === 'all') {
+          (group === 'carrier' ? carriers : categories).forEach(v => targetSet.add(v));
+        }
+        render();
+      });
+    });
+
+    render();
+  });
+
+document.getElementById('sidebar-toggle').addEventListener('click', () => {
+  document.getElementById('sidebar').classList.toggle('open');
+});
+</script>
+</body>
+</html>

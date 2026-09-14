@@ -1,0 +1,3 @@
+scripts/*.pkl
+__pycache__/
+*.pyc
