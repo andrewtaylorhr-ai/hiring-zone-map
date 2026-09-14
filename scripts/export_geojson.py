@@ -14,6 +14,7 @@ SOURCES = [
     ('records.pkl', 'Swift'),
     ('records_cre2.pkl', 'CR England'),
     ('records_pam.pkl', 'PAM'),
+    ('records_jbh.pkl', 'J.B. Hunt'),
 ]
 
 CATEGORY_COLORS = {
