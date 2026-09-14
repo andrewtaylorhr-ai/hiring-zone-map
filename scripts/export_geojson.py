@@ -15,6 +15,7 @@ SOURCES = [
     ('records_cre2.pkl', 'CR England'),
     ('records_pam.pkl', 'PAM'),
     ('records_jbh.pkl', 'J.B. Hunt'),
+    ('records_transam.pkl', 'TransAm'),
 ]
 
 CATEGORY_COLORS = {
@@ -96,6 +97,9 @@ for pkl_path, carrier in SOURCES:
         elif gt == 'point':
             lat, lon = r['geom_data']
             geometry = {'type': 'Point', 'coordinates': [lon, lat]}
+        elif gt in ('Polygon', 'MultiPolygon'):
+            # already GeoJSON-shaped coordinates (e.g. a union of state shapes)
+            geometry = {'type': gt, 'coordinates': r['geom_data']}
         else:
             skipped += 1
             continue
