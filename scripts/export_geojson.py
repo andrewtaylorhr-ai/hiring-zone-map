@@ -79,6 +79,7 @@ for pkl_path, carrier in SOURCES:
         category = r.get('category') or 'Regional'
         color = CATEGORY_COLORS.get(category, '#777777')
         center = r.get('center')
+        bonus = r.get('sign_on_bonus')
         props = {
             'carrier': carrier,
             'account': r['account'],
@@ -87,6 +88,8 @@ for pkl_path, carrier in SOURCES:
             'hiring_states': r.get('hiring_states') or [],
             'color': color,
             'center': [center[0], center[1]] if center else None,
+            'hot': bool(bonus and bonus >= 10000),
+            'sign_on_bonus': bonus,
         }
 
         if gt in ('radius_circle', 'zip_cluster'):
