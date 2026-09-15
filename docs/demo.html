@@ -104,6 +104,19 @@
     background: #fff3cd; color: #664d03; font-size: 12px; padding: 6px 10px;
     border-bottom: 1px solid #ffe69c; text-align: center;
   }
+  .carrier-badge-bar {
+    display: flex; gap: 8px; background: rgba(255,255,255,.92); padding: 6px; border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3);
+  }
+  .carrier-badge-bar .badge {
+    width: 42px; height: 42px; border-radius: 50%; background: #fff; border: 2px solid #eee;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: transform .12s ease, border-color .12s ease;
+    flex-shrink: 0;
+  }
+  .carrier-badge-bar .badge:hover { transform: scale(1.1); border-color: #999; }
+  .carrier-badge-bar .badge.active { border-color: #1f2937; border-width: 3px; }
+  .carrier-badge-bar .badge img { width: 100%; height: 100%; object-fit: contain; padding: 5px; box-sizing: border-box; }
   @media (max-width: 720px) {
     #sidebar { position: absolute; left: 0; top: 0; bottom: 0; transform: translateX(-100%); transition: transform .2s; }
     #sidebar.open { transform: translateX(0); }
@@ -201,7 +214,9 @@ function pointIcon(color) {
   });
 }
 
-// ---- Per-carrier logo/badge markers ----
+// ---- Per-carrier logo badges: a fixed row docked to the map corner (not tied to
+// map coordinates), so they act as a persistent carrier switcher instead of
+// floating icons scattered/overlapping across the geography. ----
 const CARRIER_LOGOS = {
   'Swift': 'logos/swift.png',
   'CR England': 'logos/crengland.png',
@@ -210,19 +225,17 @@ const CARRIER_LOGOS = {
   'TransAm': 'logos/transam.png',
   'US Express': 'logos/usx.png',
 };
-function carrierBadgeIcon(carrier) {
-  const logo = CARRIER_LOGOS[carrier];
-  return L.divIcon({
-    html: `<div style="width:48px;height:48px;border-radius:50%;background:#fff;
-      display:flex;align-items:center;justify-content:center;
-      border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);overflow:hidden;">
-      <img src="${logo}" style="width:100%;height:100%;object-fit:contain;padding:5px;box-sizing:border-box;" />
-    </div>`,
-    className: '',
-    iconSize: [48, 48],
-  });
-}
-const carrierBadgeLayer = L.layerGroup();
+const CarrierBadgeBar = L.Control.extend({
+  options: { position: 'bottomleft' },
+  onAdd: function () {
+    const div = L.DomUtil.create('div', 'carrier-badge-bar');
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
+    return div;
+  },
+});
+const carrierBadgeBar = new CarrierBadgeBar();
+map.addControl(carrierBadgeBar);
 
 const state = { carriers: new Set(), categories: new Set(), stateFilter: '', search: '', zip: null };
 let allFeatures = [];
@@ -373,22 +386,33 @@ function zoomToFeature(f) {
 let allCarrierNames = [];
 
 function buildCarrierBadges(features) {
-  carrierBadgeLayer.clearLayers();
-  const groups = new Map();
+  const container = carrierBadgeBar.getContainer();
+  if (!container) return;
+  container.innerHTML = '';
+  const carrierCounts = new Map();
   features.forEach(f => {
-    const c = f.properties.center;
-    if (!c) return;
+    if (!f.properties.center) return;
     const carrier = f.properties.carrier;
-    if (!groups.has(carrier)) groups.set(carrier, []);
-    groups.get(carrier).push(c);
+    carrierCounts.set(carrier, (carrierCounts.get(carrier) || 0) + 1);
   });
-  groups.forEach((centers, carrier) => {
-    const lat = centers.reduce((s, c) => s + c[0], 0) / centers.length;
-    const lon = centers.reduce((s, c) => s + c[1], 0) / centers.length;
-    const marker = L.marker([lat, lon], { icon: carrierBadgeIcon(carrier), zIndexOffset: 1000 });
-    marker.bindTooltip(`${carrier} &middot; ${centers.length} accounts &middot; click to view hiring area`, { direction: 'top', offset: [0, -18] });
-    marker.on('click', () => selectCarrierOnly(carrier));
-    carrierBadgeLayer.addLayer(marker);
+  [...carrierCounts.keys()].sort().forEach(carrier => {
+    const el = document.createElement('div');
+    el.className = 'badge';
+    el.dataset.carrier = carrier;
+    el.title = `${carrier} · ${carrierCounts.get(carrier)} accounts · click to view hiring area`;
+    el.innerHTML = `<img src="${CARRIER_LOGOS[carrier] || ''}" alt="${escapeHtml(carrier)}">`;
+    el.addEventListener('click', () => selectCarrierOnly(carrier));
+    container.appendChild(el);
+  });
+  updateBadgeActiveStates();
+}
+
+function updateBadgeActiveStates() {
+  const container = carrierBadgeBar.getContainer();
+  if (!container) return;
+  const filtered = state.carriers.size > 0 && state.carriers.size < allCarrierNames.length;
+  [...container.children].forEach(el => {
+    el.classList.toggle('active', filtered && state.carriers.has(el.dataset.carrier));
   });
 }
 
@@ -405,6 +429,7 @@ function selectCarrierOnly(carrier) {
     state.carriers.add(carrier);
   }
   render();
+  updateBadgeActiveStates();
 
   const carrierFeatures = allFeatures.filter(f => f.properties.carrier === carrier && f.properties.center);
   if (carrierFeatures.length) {
@@ -567,6 +592,7 @@ function buildCheckboxList(containerId, values, targetSet, counts) {
     row.querySelector('input').addEventListener('change', e => {
       if (e.target.checked) targetSet.add(v); else targetSet.delete(v);
       render();
+      if (containerId === 'carrierList') updateBadgeActiveStates();
     });
   });
 }
@@ -604,7 +630,6 @@ Promise.all([
     const states = [...new Set(allFeatures.flatMap(f => f.properties.hiring_states || []))].sort();
     allCarrierNames = carriers;
     buildCarrierBadges(allFeatures);
-    carrierBadgeLayer.addTo(map);
 
     const carrierCounts = {}, categoryCounts = {};
     allFeatures.forEach(f => {
@@ -667,6 +692,7 @@ Promise.all([
           (group === 'carrier' ? carriers : categories).forEach(v => targetSet.add(v));
         }
         render();
+        if (group === 'carrier') updateBadgeActiveStates();
       });
     });
 
