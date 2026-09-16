@@ -13,9 +13,23 @@
   #sidebar {
     width: 320px; flex-shrink: 0; background: #fff; border-right: 1px solid #ddd;
     padding: 14px; overflow-y: auto; box-sizing: border-box; z-index: 1001;
+    position: relative;
   }
-  #sidebar h1 { font-size: 17px; margin: 0 0 4px; }
-  #sidebar .subtitle { font-size: 12px; color: #666; margin-bottom: 14px; }
+  #sidebar h1 { font-size: 17px; margin: 0 0 14px; }
+  .info-banner {
+    position: fixed; top: 44px; right: 14px; z-index: 2000;
+    display: flex; align-items: flex-start; gap: 8px; max-width: 280px;
+    background: #fff; border: 1px solid #e2e2e2; border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.15); padding: 9px 10px; font-size: 12px; color: #333;
+  }
+  .info-banner .info-icon { flex-shrink: 0; line-height: 1.3; }
+  .info-banner .info-text { flex: 1; line-height: 1.35; }
+  .info-banner button {
+    flex-shrink: 0; background: none; border: none; cursor: pointer; color: #999;
+    font-size: 13px; line-height: 1; padding: 1px 0 0 2px;
+  }
+  .info-banner button:hover { color: #555; }
+  .info-banner.hidden { display: none; }
   .clear-all-btn {
     display: block; width: 100%; margin: 0 0 14px; font-size: 12px; font-weight: 600;
     color: #3730a3; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 4px;
@@ -101,7 +115,22 @@
   .leaflet-popup-content { font-size: 13px; max-width: 260px; }
   .leaflet-popup-content b { font-size: 14px; }
   .popup-meta { color: #555; margin: 4px 0; }
-  .popup-desc { margin-top: 6px; max-height: 140px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; }
+  .popup-desc { margin-top: 6px; white-space: pre-wrap; font-size: 12px; }
+  .detail-card {
+    position: fixed; top: 100px; right: 14px; z-index: 1999;
+    width: 320px; max-height: calc(100vh - 120px); overflow-y: auto; box-sizing: border-box;
+    background: #fff; border: 1px solid #e2e2e2; border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.22); padding: 14px 30px 14px 14px;
+    font-size: 13px; color: #222;
+  }
+  .detail-card.hidden { display: none; }
+  .detail-card b { font-size: 14px; }
+  .detail-card .popup-desc { max-height: none; overflow: visible; }
+  .detail-card-close {
+    position: absolute; top: 8px; right: 8px; background: none; border: none;
+    cursor: pointer; color: #999; font-size: 15px; line-height: 1; padding: 4px;
+  }
+  .detail-card-close:hover { color: #555; }
   #sidebar-toggle {
     display: none; position: absolute; top: 10px; left: 10px; z-index: 1002;
     background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 6px 10px; cursor: pointer;
@@ -142,11 +171,19 @@
 </head>
 <body>
 <div id="demo-banner">DEMO — grouped/card-style results list. Not linked from the live site.</div>
+<div id="infoBanner" class="info-banner">
+  <span class="info-icon">ℹ️</span>
+  <span class="info-text">Click a shape for account details. Use filters to narrow the map.</span>
+  <button id="infoBannerClose" aria-label="Dismiss">✕</button>
+</div>
+<div id="detailCard" class="detail-card hidden">
+  <button id="detailCardClose" class="detail-card-close" aria-label="Close">✕</button>
+  <div id="detailCardContent"></div>
+</div>
 <div id="app">
   <button id="sidebar-toggle">Filters</button>
   <div id="sidebar">
     <h1>CDL-A Hiring Zones</h1>
-    <div class="subtitle">Click a shape for account details. Use filters to narrow the map.</div>
     <button id="clearAllBtn" class="clear-all-btn">✕ Clear all filters</button>
 
     <div id="statGrid" class="stat-grid"></div>
@@ -409,9 +446,19 @@ function applySelectionDimming() {
   });
 }
 
+function showDetailCard(f) {
+  document.getElementById('detailCardContent').innerHTML = popupHtml(f.properties);
+  document.getElementById('detailCard').classList.remove('hidden');
+}
+
+function hideDetailCard() {
+  document.getElementById('detailCard').classList.add('hidden');
+}
+
 function selectFeature(f) {
   selectedFeature = f;
   applySelectionDimming();
+  showDetailCard(f);
 }
 
 // Map shapes for a carrier only stay visible while that carrier's group in the
@@ -430,6 +477,7 @@ function applyCollapsedVisibility() {
 function clearSelection() {
   selectedFeature = null;
   applySelectionDimming();
+  hideDetailCard();
 }
 
 function zoomToFeature(f) {
@@ -437,7 +485,6 @@ function zoomToFeature(f) {
   if (!layer) return;
   if (map.hasLayer(clusterLayer)) map.removeLayer(clusterLayer);
   if (!map.hasLayer(geoLayer)) map.addLayer(geoLayer);
-  layer.openPopup();
   selectFeature(f);
 }
 
@@ -570,7 +617,6 @@ function render() {
       shown++;
       resultsFeatures.push(f);
       featureLayerMap.set(f, layer);
-      layer.bindPopup(popupHtml(f.properties));
       layer.on('click', () => selectFeature(f));
     },
   });
@@ -593,7 +639,7 @@ function render() {
         .slice(0, 8);
       nearest.forEach(({ f }) => {
         const layer = L.geoJSON(f, { style: () => styleFor(f.properties), pointToLayer: (ff, latlng) => L.circleMarker(latlng, { radius: 5, ...styleFor(f.properties) }) });
-        layer.eachLayer(l => { l.bindPopup(popupHtml(f.properties)); l.on('click', () => selectFeature(f)); geoLayer.addLayer(l); featureLayerMap.set(f, l); });
+        layer.eachLayer(l => { l.on('click', () => selectFeature(f)); geoLayer.addLayer(l); featureLayerMap.set(f, l); });
         resultsFeatures.push(f);
         shown++;
       });
@@ -617,7 +663,7 @@ function render() {
     if (!c) return;
     const color = CATEGORY_COLORS[f.properties.category] || '#777777';
     const marker = L.marker([c[0], c[1]], { icon: pointIcon(color) });
-    marker.bindPopup(popupHtml(f.properties));
+    marker.on('click', () => selectFeature(f));
     marker.zoneFeature = f;
     clusterLayer.addLayer(marker);
   });
@@ -625,7 +671,7 @@ function render() {
   updateClusterFilterBar();
   applyCollapsedVisibility();
 
-  if (selectedFeature && !featureLayerMap.has(selectedFeature)) selectedFeature = null;
+  if (selectedFeature && !featureLayerMap.has(selectedFeature)) { selectedFeature = null; hideDetailCard(); }
   applySelectionDimming();
 }
 
@@ -798,6 +844,7 @@ function clearAllFilters() {
 
   state.clusterOnly = null;
   selectedFeature = null;
+  hideDetailCard();
   collapsedGroups.clear();
 
   map.setView([39.5, -98.35], 5, { animate: false });
@@ -806,6 +853,12 @@ function clearAllFilters() {
   updateBadgeActiveStates();
 }
 document.getElementById('clearAllBtn').addEventListener('click', clearAllFilters);
+
+document.getElementById('infoBannerClose').addEventListener('click', () => {
+  document.getElementById('infoBanner').classList.add('hidden');
+});
+
+document.getElementById('detailCardClose').addEventListener('click', clearSelection);
 </script>
 </body>
 </html>
