@@ -43,8 +43,13 @@
   .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 16px; }
   .stat-card {
     background: #f7f8fa; border: 1px solid #ecedf0; border-radius: 8px;
-    padding: 8px 10px;
+    padding: 8px 10px; display: flex; align-items: center; gap: 8px;
   }
+  .stat-card .icon-circle {
+    width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .stat-card .stat-body { min-width: 0; }
   .stat-card .num { font-size: 18px; font-weight: 700; color: #222; line-height: 1.1; }
   .stat-card .lbl { font-size: 10.5px; color: #888; text-transform: uppercase; letter-spacing: .03em; margin-top: 2px; }
   .stat-card.cat-dot .num { display: flex; align-items: center; gap: 5px; }
@@ -69,6 +74,12 @@
     width: 100%; padding: 6px 8px; box-sizing: border-box; border: 1px solid #ccc;
     border-radius: 6px; font-size: 13px; margin-bottom: 4px;
   }
+  .search-input-wrap { position: relative; }
+  .search-input-wrap .search-icon {
+    position: absolute; left: 8px; top: 0; bottom: 4px; display: flex; align-items: center;
+    font-size: 12px; opacity: .55; pointer-events: none;
+  }
+  .search-input-wrap #search { padding-left: 26px; }
   #count { font-size: 12px; color: #666; margin-top: 4px; margin-bottom: 6px; }
   #resultsList { max-height: 460px; overflow-y: auto; border-top: 1px solid #eee; }
 
@@ -116,6 +127,12 @@
   .leaflet-popup-content b { font-size: 14px; }
   .popup-meta { color: #555; margin: 4px 0; }
   .popup-desc { margin-top: 6px; white-space: pre-wrap; font-size: 12px; }
+  .popup-carrier-logo {
+    width: 40px; height: 40px; border-radius: 50%; background: #fff; border: 1px solid #eee;
+    display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.12);
+  }
+  .popup-carrier-logo img { width: 100%; height: 100%; object-fit: contain; padding: 5px; box-sizing: border-box; }
   .detail-card {
     position: fixed; top: 100px; right: 14px; z-index: 1999;
     width: 320px; max-height: calc(100vh - 120px); overflow-y: auto; box-sizing: border-box;
@@ -196,7 +213,10 @@
 
     <div class="section">
       <h2>Search</h2>
-      <input id="search" type="text" placeholder="Search account, city, or ZIP code...">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input id="search" type="text" placeholder="Search account, city, or ZIP code...">
+      </div>
       <div id="searchMsg" style="font-size:12px;color:#666;"></div>
     </div>
 
@@ -219,7 +239,7 @@
     </div>
 
     <div class="section">
-      <h2>State</h2>
+      <h2>📍 State</h2>
       <select id="stateFilter">
         <option value="">All states</option>
       </select>
@@ -436,7 +456,9 @@ function haversineMiles(a, b) {
 function popupHtml(props) {
   const states = (props.hiring_states || []).join(', ');
   const desc = escapeHtml(props.description).slice(0, 1200);
+  const logo = CARRIER_LOGOS[props.carrier];
   return `
+    ${logo ? `<div class="popup-carrier-logo"><img src="${logo}" alt="${escapeHtml(props.carrier)}"></div>` : ''}
     <b>${escapeHtml(props.account)}</b>
     <div class="popup-meta">${escapeHtml(props.carrier)} &middot; ${escapeHtml(props.category)}${states ? ' &middot; ' + escapeHtml(states) : ''}</div>
     ${desc ? `<div class="popup-desc">${desc}</div>` : ''}
@@ -756,6 +778,9 @@ function buildCheckboxList(containerId, values, targetSet, counts) {
   });
 }
 
+const CATEGORY_ICONS = { OTR: '🛣️', Dedicated: '🎯', Regional: '🧭', Local: '📍' };
+const CATEGORY_ICON_BG = { OTR: '#fde2df', Dedicated: '#e1e7f5', Regional: '#fef0dc', Local: '#d9f2e6' };
+
 function buildStatGrid(features) {
   const grid = document.getElementById('statGrid');
   const categories = ['OTR', 'Dedicated', 'Regional', 'Local'];
@@ -765,14 +790,17 @@ function buildStatGrid(features) {
   features.forEach(f => { catCounts[f.properties.category] = (catCounts[f.properties.category] || 0) + 1; });
 
   const cards = [
-    { num: features.length, lbl: 'Accounts' },
-    { num: carrierCount, lbl: 'Carriers' },
-    ...categories.map(c => ({ num: catCounts[c] || 0, lbl: c, color: CATEGORY_COLORS[c] })),
+    { num: features.length, lbl: 'Accounts', icon: '👥', bg: '#fee2e2' },
+    { num: carrierCount, lbl: 'Carriers', icon: '🚚', bg: '#dbeafe' },
+    ...categories.map(c => ({ num: catCounts[c] || 0, lbl: c, icon: CATEGORY_ICONS[c], bg: CATEGORY_ICON_BG[c] })),
   ];
   grid.innerHTML = cards.map(c => `
-    <div class="stat-card${c.color ? ' cat-dot' : ''}">
-      <div class="num">${c.color ? `<span class="dot" style="background:${c.color}"></span>` : ''}${c.num}</div>
-      <div class="lbl">${escapeHtml(c.lbl)}</div>
+    <div class="stat-card">
+      <span class="icon-circle" style="background:${c.bg}">${c.icon}</span>
+      <div class="stat-body">
+        <div class="num">${c.num}</div>
+        <div class="lbl">${escapeHtml(c.lbl)}</div>
+      </div>
     </div>
   `).join('');
 }
