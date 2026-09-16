@@ -199,7 +199,6 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 const LARGE_RADIUS_MI = 150;
 const MAX_STATE_CHIPS = 5;
-const CLUSTER_ZOOM_THRESHOLD = 7; // below this zoom: show count clusters; at/above: show actual zone shapes
 
 function clusterIconFor(cluster) {
   const count = cluster.getChildCount();
@@ -283,13 +282,16 @@ function updateClusterFilterBar() {
 }
 
 function updateLayerVisibility() {
-  const z = map.getZoom();
-  if (z < CLUSTER_ZOOM_THRESHOLD) {
-    if (map.hasLayer(geoLayer)) map.removeLayer(geoLayer);
-    if (!map.hasLayer(clusterLayer)) map.addLayer(clusterLayer);
-  } else {
+  // Real account shapes only appear once a cluster has been clicked/drilled
+  // into (state.clusterOnly) — zooming in on its own always stays in cluster
+  // mode, so the map never shows the full pile of overlapping shapes unless
+  // the recruiter has actually picked a cluster to inspect.
+  if (state.clusterOnly) {
     if (map.hasLayer(clusterLayer)) map.removeLayer(clusterLayer);
     if (geoLayer && !map.hasLayer(geoLayer)) map.addLayer(geoLayer);
+  } else {
+    if (map.hasLayer(geoLayer)) map.removeLayer(geoLayer);
+    if (!map.hasLayer(clusterLayer)) map.addLayer(clusterLayer);
   }
 }
 map.on('zoomend', updateLayerVisibility);
@@ -400,6 +402,19 @@ function selectFeature(f) {
   applySelectionDimming();
 }
 
+// Map shapes for a carrier only stay visible while that carrier's group in the
+// results sidebar is expanded — collapsing a group hides its shapes from the map,
+// expanding it brings them right back, without needing a full re-render.
+function applyCollapsedVisibility() {
+  if (!geoLayer) return;
+  featureLayerMap.forEach((layer, f) => {
+    const shouldShow = !collapsedGroups.has(f.properties.carrier);
+    const isOnMap = geoLayer.hasLayer(layer);
+    if (shouldShow && !isOnMap) geoLayer.addLayer(layer);
+    else if (!shouldShow && isOnMap) geoLayer.removeLayer(layer);
+  });
+}
+
 function clearSelection() {
   selectedFeature = null;
   applySelectionDimming();
@@ -410,8 +425,6 @@ function zoomToFeature(f) {
   if (!layer) return;
   if (map.hasLayer(clusterLayer)) map.removeLayer(clusterLayer);
   if (!map.hasLayer(geoLayer)) map.addLayer(geoLayer);
-  if (layer.getBounds) map.fitBounds(layer.getBounds(), { maxZoom: 9 });
-  else if (layer.getLatLng) map.setView(layer.getLatLng(), 9);
   layer.openPopup();
   selectFeature(f);
 }
@@ -505,6 +518,7 @@ function buildResultsList(features) {
       if (collapsedGroups.has(carrier)) collapsedGroups.delete(carrier);
       else collapsedGroups.add(carrier);
       buildResultsList(features);
+      applyCollapsedVisibility();
     });
     container.appendChild(header);
 
@@ -596,6 +610,7 @@ function render() {
   });
   updateLayerVisibility();
   updateClusterFilterBar();
+  applyCollapsedVisibility();
 
   if (selectedFeature && !featureLayerMap.has(selectedFeature)) selectedFeature = null;
   applySelectionDimming();
