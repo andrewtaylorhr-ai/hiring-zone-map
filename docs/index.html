@@ -235,11 +235,52 @@
 <script>
 const CATEGORY_COLORS = { OTR: '#DB4436', Dedicated: '#3F5BA9', Local: '#009D57', Regional: '#F8971B' };
 
+const STATE_ABBR_TO_NAME = {
+  AL:'Alabama', AK:'Alaska', AZ:'Arizona', AR:'Arkansas', CA:'California', CO:'Colorado', CT:'Connecticut',
+  DE:'Delaware', DC:'District of Columbia', FL:'Florida', GA:'Georgia', HI:'Hawaii', ID:'Idaho', IL:'Illinois',
+  IN:'Indiana', IA:'Iowa', KS:'Kansas', KY:'Kentucky', LA:'Louisiana', ME:'Maine', MD:'Maryland',
+  MA:'Massachusetts', MI:'Michigan', MN:'Minnesota', MS:'Mississippi', MO:'Missouri', MT:'Montana',
+  NE:'Nebraska', NV:'Nevada', NH:'New Hampshire', NJ:'New Jersey', NM:'New Mexico', NY:'New York',
+  NC:'North Carolina', ND:'North Dakota', OH:'Ohio', OK:'Oklahoma', OR:'Oregon', PA:'Pennsylvania',
+  PR:'Puerto Rico', RI:'Rhode Island', SC:'South Carolina', SD:'South Dakota', TN:'Tennessee', TX:'Texas',
+  UT:'Utah', VT:'Vermont', VA:'Virginia', WA:'Washington', WV:'West Virginia', WI:'Wisconsin', WY:'Wyoming',
+};
+const STATE_NAME_TO_ABBR = Object.fromEntries(Object.entries(STATE_ABBR_TO_NAME).map(([abbr, name]) => [name, abbr]));
+
 const map = L.map('map', { preferCanvas: true }).setView([39.5, -98.35], 5);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap contributors',
   maxZoom: 18,
 }).addTo(map);
+
+// State-boundary overlay: lets a recruiter see the TRUE full extent of a state
+// (vs. the account hiring-radius circles, which often only cover part of it or
+// bleed into neighboring states). Added early so it stays beneath account
+// shapes/clusters in the layer stack.
+let stateBoundaryLayer = null;
+function stateBoundaryStyle(feature) {
+  const abbr = STATE_NAME_TO_ABBR[feature.properties.name];
+  const selected = state.stateFilter && abbr === state.stateFilter;
+  return {
+    color: selected ? '#dc2626' : '#94a3b8',
+    weight: selected ? 3 : 1,
+    dashArray: selected ? '8 5' : '2 5',
+    fillColor: selected ? '#dc2626' : '#000000',
+    fillOpacity: selected ? 0.05 : 0,
+    opacity: selected ? 0.9 : 0.35,
+  };
+}
+function refreshStateBoundaryStyle() {
+  if (stateBoundaryLayer) stateBoundaryLayer.setStyle(stateBoundaryStyle);
+}
+function selectStateOnMap(abbr, layerBounds) {
+  state.stateFilter = state.stateFilter === abbr ? '' : abbr;
+  const stateSelect = document.getElementById('stateFilter');
+  if (stateSelect) stateSelect.value = state.stateFilter;
+  render();
+  refreshStateBoundaryStyle();
+  if (state.stateFilter && layerBounds) map.fitBounds(layerBounds, { padding: [40, 40] });
+}
 
 const LARGE_RADIUS_MI = 150;
 const MAX_STATE_CHIPS = 5;
@@ -327,10 +368,13 @@ function updateClusterFilterBar() {
 
 function updateLayerVisibility() {
   // Real account shapes only appear once a cluster has been clicked/drilled
-  // into (state.clusterOnly) — zooming in on its own always stays in cluster
-  // mode, so the map never shows the full pile of overlapping shapes unless
-  // the recruiter has actually picked a cluster to inspect.
-  if (state.clusterOnly) {
+  // into (state.clusterOnly), or once a specific state has been selected
+  // (state.stateFilter) — a state pick is a deliberate, narrow selection, so
+  // show every offer in it directly instead of leaving them clustered into
+  // count bubbles. Otherwise (fully zoomed out, no state chosen) stay in
+  // cluster mode so the map never shows the full pile of overlapping shapes.
+  const showShapes = !!state.clusterOnly || !!state.stateFilter;
+  if (showShapes) {
     if (map.hasLayer(clusterLayer)) map.removeLayer(clusterLayer);
     if (geoLayer && !map.hasLayer(geoLayer)) map.addLayer(geoLayer);
   } else {
@@ -725,10 +769,22 @@ function buildStatGrid(features) {
 Promise.all([
   fetch('data.geojson').then(r => r.json()),
   fetch('zips.json').then(r => r.json()),
+  fetch('us_states.geojson').then(r => r.json()),
 ])
-  .then(([fc, zips]) => {
+  .then(([fc, zips, statesGeo]) => {
     allFeatures = fc.features;
     zipLookup = zips;
+
+    stateBoundaryLayer = L.geoJSON(statesGeo, {
+      style: stateBoundaryStyle,
+      onEachFeature: (feature, layer) => {
+        const abbr = STATE_NAME_TO_ABBR[feature.properties.name];
+        if (!abbr) return;
+        layer.on('click', () => selectStateOnMap(abbr, layer.getBounds()));
+        layer.on('mouseover', () => { if (!(state.stateFilter && abbr === state.stateFilter)) layer.setStyle({ weight: 2, opacity: 0.7 }); });
+        layer.on('mouseout', () => refreshStateBoundaryStyle());
+      },
+    }).addTo(map);
     const carriers = [...new Set(allFeatures.map(f => f.properties.carrier))].sort();
     const categories = [...new Set(allFeatures.map(f => f.properties.category))].sort();
     const states = [...new Set(allFeatures.flatMap(f => f.properties.hiring_states || []))].sort();
@@ -749,10 +805,19 @@ Promise.all([
     const stateSelect = document.getElementById('stateFilter');
     states.forEach(s => {
       const opt = document.createElement('option');
-      opt.value = s; opt.textContent = s;
+      opt.value = s; opt.textContent = STATE_ABBR_TO_NAME[s] ? `${STATE_ABBR_TO_NAME[s]} (${s})` : s;
       stateSelect.appendChild(opt);
     });
-    stateSelect.addEventListener('change', e => { state.stateFilter = e.target.value; render(); });
+    stateSelect.addEventListener('change', e => {
+      state.stateFilter = e.target.value;
+      render();
+      refreshStateBoundaryStyle();
+      if (state.stateFilter && stateBoundaryLayer) {
+        stateBoundaryLayer.eachLayer(l => {
+          if (STATE_NAME_TO_ABBR[l.feature.properties.name] === state.stateFilter) map.fitBounds(l.getBounds(), { padding: [40, 40] });
+        });
+      }
+    });
 
     document.getElementById('search').addEventListener('input', e => {
       const raw = e.target.value.trim();
@@ -845,6 +910,7 @@ function clearAllFilters() {
   map.setView([39.5, -98.35], 5, { animate: false });
 
   render();
+  refreshStateBoundaryStyle();
   updateBadgeActiveStates();
 }
 document.getElementById('clearAllBtn').addEventListener('click', clearAllFilters);
