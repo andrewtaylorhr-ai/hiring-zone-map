@@ -117,6 +117,16 @@
   .carrier-badge-bar .badge:hover { transform: scale(1.1); border-color: #999; }
   .carrier-badge-bar .badge.active { border-color: #1f2937; border-width: 3px; }
   .carrier-badge-bar .badge img { width: 100%; height: 100%; object-fit: contain; padding: 5px; box-sizing: border-box; }
+  .cluster-filter-bar {
+    display: none; align-items: center; justify-content: space-between; gap: 8px;
+    font-size: 11px; color: #1f2937; background: #eef2ff; border: 1px solid #c7d2fe;
+    border-radius: 4px; padding: 5px 8px; margin: 0 0 8px;
+  }
+  .cluster-filter-bar.visible { display: flex; }
+  .cluster-filter-bar button {
+    font-size: 11px; font-weight: 600; color: #3730a3; background: none; border: none;
+    cursor: pointer; padding: 0; white-space: nowrap;
+  }
   @media (max-width: 720px) {
     #sidebar { position: absolute; left: 0; top: 0; bottom: 0; transform: translateX(-100%); transition: transform .2s; }
     #sidebar.open { transform: translateX(0); }
@@ -171,6 +181,10 @@
         <button id="clearSelectionBtn" style="display:none; font-size:11px; font-weight:400; text-transform:none; letter-spacing:0; color:#666; background:#f2f2f2; border:1px solid #ddd; border-radius:4px; padding:2px 7px; cursor:pointer;">✕ Clear selection</button>
       </h2>
       <div id="count"></div>
+      <div id="clusterFilterBar" class="cluster-filter-bar">
+        <span id="clusterFilterText"></span>
+        <button id="clearClusterBtn">✕ Clear</button>
+      </div>
       <div id="resultsList"></div>
     </div>
   </div>
@@ -237,18 +251,41 @@ const CarrierBadgeBar = L.Control.extend({
 const carrierBadgeBar = new CarrierBadgeBar();
 map.addControl(carrierBadgeBar);
 
-const state = { carriers: new Set(), categories: new Set(), stateFilter: '', search: '', zip: null };
+const state = { carriers: new Set(), categories: new Set(), stateFilter: '', search: '', zip: null, clusterOnly: null };
 let allFeatures = [];
 let geoLayer = null;
 const clusterLayer = L.markerClusterGroup({
   iconCreateFunction: clusterIconFor,
   showCoverageOnHover: false,
   maxClusterRadius: 70,
+  zoomToBoundsOnClick: false,
 });
 let zipLookup = {};
 let zipMarker = null;
 let featureLayerMap = new Map();
 let collapsedGroups = new Set();
+
+// Clicking a cluster bubble drills the whole app (map + sidebar list) down to
+// just the accounts inside that cluster, same pattern as picking a carrier badge.
+clusterLayer.on('clusterclick', e => {
+  const feats = e.layer.getAllChildMarkers().map(m => m.zoneFeature).filter(Boolean);
+  if (!feats.length) return;
+  state.clusterOnly = new Set(feats);
+  render();
+});
+
+function updateClusterFilterBar() {
+  const bar = document.getElementById('clusterFilterBar');
+  const text = document.getElementById('clusterFilterText');
+  if (!bar || !text) return;
+  if (state.clusterOnly) {
+    const n = state.clusterOnly.size;
+    text.textContent = `Showing ${n} account${n === 1 ? '' : 's'} from selected cluster`;
+    bar.classList.add('visible');
+  } else {
+    bar.classList.remove('visible');
+  }
+}
 
 function updateLayerVisibility() {
   const z = map.getZoom();
@@ -312,6 +349,7 @@ function popupHtml(props) {
 
 function passesFilters(feature) {
   const props = feature.properties;
+  if (state.clusterOnly && !state.clusterOnly.has(feature)) return false;
   if (state.carriers.size && !state.carriers.has(props.carrier)) return false;
   if (state.categories.size && !state.categories.has(props.category)) return false;
   if (state.stateFilter && !(props.hiring_states || []).includes(state.stateFilter)) return false;
@@ -558,9 +596,11 @@ function render() {
     const color = CATEGORY_COLORS[f.properties.category] || '#777777';
     const marker = L.marker([c[0], c[1]], { icon: pointIcon(color) });
     marker.bindPopup(popupHtml(f.properties));
+    marker.zoneFeature = f;
     clusterLayer.addLayer(marker);
   });
   updateLayerVisibility();
+  updateClusterFilterBar();
 
   if (selectedFeature && !featureLayerMap.has(selectedFeature)) selectedFeature = null;
   applySelectionDimming();
@@ -704,6 +744,10 @@ document.getElementById('sidebar-toggle').addEventListener('click', () => {
 });
 
 document.getElementById('clearSelectionBtn').addEventListener('click', clearSelection);
+document.getElementById('clearClusterBtn').addEventListener('click', () => {
+  state.clusterOnly = null;
+  render();
+});
 </script>
 </body>
 </html>
