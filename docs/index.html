@@ -15,7 +15,9 @@
     padding: 14px; overflow-y: auto; box-sizing: border-box; z-index: 1001;
     position: relative;
   }
-  #sidebar h1 { font-size: 17px; margin: 0 0 14px; }
+  .app-brand { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; }
+  .app-brand .brand-logo { height: 52px; width: auto; border-radius: 8px; object-fit: contain; flex-shrink: 0; }
+  #sidebar h1 { font-size: 14px; margin: 0; font-weight: 700; color: #222; }
   .info-banner {
     position: fixed; top: 14px; right: 14px; z-index: 2000;
     display: flex; align-items: flex-start; gap: 8px; max-width: 280px;
@@ -39,19 +41,27 @@
   #map { flex: 1; }
   .section { margin-bottom: 16px; }
   .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #888; margin: 0 0 8px; }
+  .section h2.collapsible-header {
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+  }
+  .section h2.collapsible-header:hover { color: #555; }
+  .section h2.collapsible-header .chevron { font-size: 10px; transition: transform .15s ease; }
+  .section h2.collapsible-header.collapsed .chevron { transform: rotate(-90deg); }
+  .collapsible-body.collapsed { display: none; }
 
-  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 16px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 12px; }
   .stat-card {
-    background: #f7f8fa; border: 1px solid #ecedf0; border-radius: 8px;
-    padding: 8px 10px; display: flex; align-items: center; gap: 8px;
+    background: #f7f8fa; border: 1px solid #ecedf0; border-radius: 6px;
+    padding: 6px; display: flex; align-items: center; gap: 5px;
   }
   .stat-card .icon-circle {
-    width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; font-size: 13px;
+    width: 19px; height: 19px; border-radius: 50%; flex-shrink: 0; font-size: 10px;
     display: flex; align-items: center; justify-content: center;
   }
   .stat-card .stat-body { min-width: 0; }
-  .stat-card .num { font-size: 18px; font-weight: 700; color: #222; line-height: 1.1; }
-  .stat-card .lbl { font-size: 10.5px; color: #888; text-transform: uppercase; letter-spacing: .03em; margin-top: 2px; }
+  .stat-card .num { font-size: 14px; font-weight: 700; color: #222; line-height: 1.1; }
+  .stat-card .lbl { font-size: 8px; color: #888; text-transform: uppercase; letter-spacing: .02em; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .stat-card.cat-dot .num { display: flex; align-items: center; gap: 5px; }
   .stat-card .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
@@ -211,7 +221,10 @@
 <div id="app">
   <button id="sidebar-toggle">Filters</button>
   <div id="sidebar">
-    <h1>CDL-A Hiring Zones</h1>
+    <div class="app-brand">
+      <img src="logos/classa-recruiting.png" alt="Class A Recruiting logo" class="brand-logo">
+      <h1>Class A Recruiting</h1>
+    </div>
     <button id="clearAllBtn" class="clear-all-btn">✕ Clear all filters</button>
 
     <div id="statGrid" class="stat-grid"></div>
@@ -235,19 +248,29 @@
     </div>
 
     <div class="section">
-      <h2>Category</h2>
-      <div class="btn-row">
-        <button data-group="category" data-action="all">All</button>
-        <button data-group="category" data-action="none">None</button>
+      <h2 class="collapsible-header" data-target="categoryBody">
+        <span>Category</span>
+        <span class="chevron">▾</span>
+      </h2>
+      <div id="categoryBody" class="collapsible-body">
+        <div class="btn-row">
+          <button data-group="category" data-action="all">All</button>
+          <button data-group="category" data-action="none">None</button>
+        </div>
+        <div id="categoryList"></div>
       </div>
-      <div id="categoryList"></div>
     </div>
 
     <div class="section">
-      <h2>📍 State</h2>
-      <select id="stateFilter">
-        <option value="">All states</option>
-      </select>
+      <h2 class="collapsible-header" data-target="stateBody">
+        <span>📍 State</span>
+        <span class="chevron">▾</span>
+      </h2>
+      <div id="stateBody" class="collapsible-body">
+        <select id="stateFilter">
+          <option value="">All states</option>
+        </select>
+      </div>
     </div>
 
     <div class="section" id="resultsSection">
@@ -1006,6 +1029,14 @@ Promise.all([
 
 document.getElementById('sidebar-toggle').addEventListener('click', () => {
   document.getElementById('sidebar').classList.toggle('open');
+});
+
+document.querySelectorAll('.collapsible-header').forEach(h => {
+  h.addEventListener('click', () => {
+    const target = document.getElementById(h.dataset.target);
+    h.classList.toggle('collapsed');
+    if (target) target.classList.toggle('collapsed');
+  });
 });
 
 document.getElementById('clearSelectionBtn').addEventListener('click', clearSelection);
