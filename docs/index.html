@@ -126,7 +126,17 @@
   .leaflet-popup-content { font-size: 13px; max-width: 260px; }
   .leaflet-popup-content b { font-size: 14px; }
   .popup-meta { color: #555; margin: 4px 0; }
-  .popup-desc { margin-top: 6px; white-space: pre-wrap; font-size: 12px; }
+  .popup-desc { margin-top: 6px; font-size: 12px; line-height: 1.5; }
+  .popup-section-header {
+    display: flex; align-items: center; gap: 6px; font-weight: 700;
+    margin: 10px 0 4px; font-size: 12.5px; color: #222;
+  }
+  .popup-section-header:first-child { margin-top: 0; }
+  .popup-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+  .popup-field { margin: 2px 0; }
+  .popup-bullets { margin: 4px 0 8px; padding-left: 18px; }
+  .popup-bullets li { margin: 3px 0; }
+  .popup-para { margin: 6px 0; }
   .popup-carrier-logo {
     width: 40px; height: 40px; border-radius: 50%; background: #fff; border: 1px solid #eee;
     display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 6px;
@@ -448,9 +458,100 @@ function haversineMiles(a, b) {
   return R * 2 * Math.asin(Math.sqrt(h));
 }
 
+// Lines that are purely internal contact info (names/numbers/emails for on-site
+// managers, recruiters, regional leaders, etc.) — stripped entirely, not shown to drivers.
+const CONTACT_LABEL_RE = /^\s*(on-site manager|manager contact\s*#?|regional leader(\s*contact\s*#?)?|driver leader\s*\/?\s*ddm|recruiting leader|recruiter\s*\/?\s*placement contact|regional director\s*\([^)]*\)|contact(\s*(name|info|#|number))?|phone(\s*number)?|email(\s*address)?)\s*:/i;
+const PHONE_RE = /\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
+const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+const HEADER_KEYWORD_RE = /^(key |pay\b|job details|requirements|benefits|overview|vacation|bonus|cpm|tagging|additional pay|freight|equipment|schedule|highlights|perks|qualifications)/i;
+const DANGLING_LABEL_RE = /^[\w /()'.#-]{1,45}:\s*$/;
+// Some carriers' source text already marks section headers with a leading emoji
+// (e.g. "🔴 Job Details", "🔴 Pay") — treat that as an explicit header signal.
+const EMOJI_PREFIX_RE = /^[\u{1F000}-\u{1FFFF}←-⯿️]+\s*/u;
+const FIELD_LINE_RE = /^([A-Za-z][A-Za-z0-9 /()'.#-]{1,40}):\s+(.+)$/;
+
+// A line with no colon that is either explicitly emoji-marked, short and
+// immediately followed by a bullet list, or matches a known section-header
+// keyword. Used both to detect headers and to stop a field's continuation-line
+// merge from swallowing the next header instead of ending the field's value.
+function isHeaderLike(line, idx, lines) {
+  if (line.includes(':')) return false;
+  if (EMOJI_PREFIX_RE.test(line)) return true;
+  if (line.length > 60) return false;
+  const nextNonEmpty = lines.slice(idx + 1).find(l => l !== '');
+  if (nextNonEmpty && /^[•*-]/.test(nextNonEmpty)) return true;
+  return HEADER_KEYWORD_RE.test(line);
+}
+
+// Turns a raw, unstructured job-description blob into a series of typed blocks
+// (section headers, "Label: value" rows, bullet lists, plain paragraphs) so it
+// renders like a formatted job posting instead of a wall of plain text.
+function formatDescription(raw, dotColor) {
+  if (!raw) return '';
+  let lines = raw.split(/\r?\n/).filter(l => !CONTACT_LABEL_RE.test(l.trim()));
+  lines = lines.map(l => l.replace(EMAIL_RE, '').replace(PHONE_RE, '').trim());
+  lines = lines.filter(l => !DANGLING_LABEL_RE.test(l));
+
+  const blocks = [];
+  let list = null;
+  const flushList = () => { if (list) { blocks.push(list); list = null; } };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) { flushList(); continue; }
+    const bulletMatch = line.match(/^[•*-]\s*(.+)$/);
+    if (bulletMatch) {
+      if (!list) list = { type: 'list', items: [] };
+      list.items.push(bulletMatch[1].trim());
+      continue;
+    }
+    flushList();
+    const fieldMatch = line.match(FIELD_LINE_RE);
+    if (fieldMatch && fieldMatch[2].length < 200) {
+      // Source data often continues a multi-value field (e.g. "Hiring state(s): AZ")
+      // as bare, unlabeled lines on their own ("CA", "CO", "ID", ...). Fold those
+      // continuation lines back into the same field instead of one-per-line —
+      // but stop as soon as the next line looks like its own header/field/bullet.
+      const values = [fieldMatch[2].trim()];
+      while (i + 1 < lines.length) {
+        const next = lines[i + 1];
+        if (!next) break;
+        if (/^[•*-]/.test(next)) break;
+        if (FIELD_LINE_RE.test(next)) break;
+        if (next.length > 60) break;
+        if (isHeaderLike(next, i + 1, lines)) break;
+        values.push(next);
+        i++;
+      }
+      blocks.push({ type: 'field', label: fieldMatch[1].trim(), value: values.join(', ') });
+      continue;
+    }
+    if (isHeaderLike(line, i, lines)) {
+      blocks.push({ type: 'header', text: line.replace(EMOJI_PREFIX_RE, '') });
+      continue;
+    }
+    blocks.push({ type: 'para', text: line });
+  }
+  flushList();
+
+  return blocks.map(b => {
+    if (b.type === 'header') {
+      return `<div class="popup-section-header"><span class="popup-dot" style="background:${dotColor}"></span>${escapeHtml(b.text)}</div>`;
+    }
+    if (b.type === 'field') {
+      return `<div class="popup-field"><b>${escapeHtml(b.label)}:</b> ${escapeHtml(b.value)}</div>`;
+    }
+    if (b.type === 'list') {
+      return `<ul class="popup-bullets">${b.items.map(it => `<li>${escapeHtml(it)}</li>`).join('')}</ul>`;
+    }
+    return `<div class="popup-para">${escapeHtml(b.text)}</div>`;
+  }).join('');
+}
+
 function popupHtml(props) {
   const states = (props.hiring_states || []).join(', ');
-  const desc = escapeHtml(props.description).slice(0, 1200);
+  const dotColor = CATEGORY_COLORS[props.category] || '#DB4436';
+  const desc = formatDescription(props.description, dotColor);
   const logo = CARRIER_LOGOS[props.carrier];
   return `
     ${logo ? `<div class="popup-carrier-logo"><img src="${logo}" alt="${escapeHtml(props.carrier)}"></div>` : ''}
