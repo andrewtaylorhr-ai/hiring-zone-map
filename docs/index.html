@@ -15,8 +15,12 @@
     padding: 14px; overflow-y: auto; box-sizing: border-box; z-index: 1001;
     position: relative;
   }
-  .app-brand { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; }
-  .app-brand .brand-logo { height: 52px; width: auto; border-radius: 8px; object-fit: contain; flex-shrink: 0; }
+  .app-brand { margin: 0 0 14px; }
+  .app-brand .brand-logo { width: 100%; height: auto; display: block; border-radius: 8px; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
   #sidebar h1 { font-size: 14px; margin: 0; font-weight: 700; color: #222; }
   .info-banner {
     position: fixed; top: 14px; right: 14px; z-index: 2000;
@@ -222,8 +226,8 @@
   <button id="sidebar-toggle">Filters</button>
   <div id="sidebar">
     <div class="app-brand">
-      <img src="logos/classa-recruiting.png" alt="Class A Recruiting logo" class="brand-logo">
-      <h1>Class A Recruiting</h1>
+      <img src="logos/classa-recruiting.png" alt="Class A Recruiting" class="brand-logo">
+      <h1 class="sr-only">Class A Recruiting</h1>
     </div>
     <button id="clearAllBtn" class="clear-all-btn">✕ Clear all filters</button>
 
