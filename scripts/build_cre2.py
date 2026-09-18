@@ -20,6 +20,8 @@ for (city_l, st), grp in zips_df.groupby(['city_l', 'state']):
     zip_city_lookup[(city_l, st)] = (grp['lat'].mean(), grp['lon'].mean())
 
 RADIUS_RE = re.compile(r'(\d+)\s*-?\s*miles?\s+of\s+([A-Za-z .\'-]+?),\s*([A-Z]{2})\b', re.I)
+# alt phrasing seen in some sheets: "Fort Collins 50 miles, CO" (city then radius, no "of")
+RADIUS_RE_ALT = re.compile(r'([A-Za-z .\'-]+?)\s+(\d+)\s*-?\s*miles?,\s*([A-Z]{2})\b', re.I)
 
 LABELS_KEEP = [
     'Job title', 'Driver type', 'Experience', 'Status', 'Hometime', 'Openings',
@@ -56,7 +58,7 @@ def category(hometime):
         return 'Dedicated'
     return 'OTR'  # every 2 weeks, once a month, etc.
 
-xl = pd.ExcelFile('../source_files/CR_England_Driver_Needs_09122026.xlsx')
+xl = pd.ExcelFile('../source_files/CR_England_Driver_Needs_09182026.xlsx')
 sheet_names = [s for s in xl.sheet_names if s != 'Open Positions']
 
 records = []
@@ -81,6 +83,8 @@ for sheet in sheet_names:
     radius_matches = []
     for t in text_cells:
         radius_matches.extend(RADIUS_RE.findall(t))
+        for city, radius_str, state in RADIUS_RE_ALT.findall(t):
+            radius_matches.append((radius_str, city, state))
 
     account = f"CR England - {sheet}"
 
