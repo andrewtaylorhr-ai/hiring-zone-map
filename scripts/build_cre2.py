@@ -156,6 +156,11 @@ for r in deduped:
     r.pop('_base_account', None)
     r.pop('_circle_key', None)
 
+# Per account request: exclude all CR England Local offers from the map.
+n_before = len(deduped)
+deduped = [r for r in deduped if r['category'] != 'Local']
+print(f"Excluded {n_before - len(deduped)} CR England Local record(s) per request.")
+
 with open('records_cre2.pkl', 'wb') as f:
     pickle.dump(deduped, f)
 
