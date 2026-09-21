@@ -6,55 +6,201 @@ from state_abbr import US_STATE_ABBR_TO_NAME
 
 geod = Geod(ellps="WGS84")
 STATE_NAME_TO_ABBR = {v: k for k, v in US_STATE_ABBR_TO_NAME.items()}
+STATE_ABBR_TO_NAME = US_STATE_ABBR_TO_NAME
 
-# TransAm's "Hiring Map" sheet is a single embedded image (xl/media/image1.png,
-# extracted to outputs/transam_extract/hiring_map.png) showing one shaded
-# nationwide hiring area. Excluded (unshaded) states, read off that image:
-# Alaska/Hawaii/Puerto Rico aren't depicted at all on the source image (a
-# CONUS-only map), so they're excluded alongside the states explicitly shown
-# unshaded (Washington, Oregon, Idaho, Montana, North/South Dakota, California).
-EXCLUDED_STATES = {
-    'Washington', 'Oregon', 'Idaho', 'Montana', 'North Dakota', 'South Dakota', 'California',
-    'Alaska', 'Hawaii', 'Puerto Rico',
-}
+# Exact hiring-state list per TransAm's Class A Profile "State" field
+# (OTR Solo offer, Class A Recruiting profile view, pulled 09/2026).
+HIRING_STATES = sorted([
+    'AL', 'AR', 'CO', 'CT', 'DE', 'GA', 'IA', 'IL', 'IN', 'KS', 'KY', 'LA',
+    'MA', 'MD', 'MI', 'MN', 'MO', 'MS', 'NC', 'NE', 'NJ', 'NY', 'OH', 'OK',
+    'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'VA', 'WV', 'WY',
+])
 
 with open('../reference_data/us_states.geojson') as f:
     states_gj = json.load(f)
 
+hiring_state_names = {STATE_ABBR_TO_NAME[a] for a in HIRING_STATES}
 included_shapes = [
     shape(feat['geometry'])
     for feat in states_gj['features']
-    if feat['properties']['name'] not in EXCLUDED_STATES
+    if feat['properties']['name'] in hiring_state_names
 ]
-hiring_states = sorted(
-    STATE_NAME_TO_ABBR[feat['properties']['name']]
-    for feat in states_gj['features']
-    if feat['properties']['name'] not in EXCLUDED_STATES
-)
 
 union = unary_union(included_shapes)
 geom = mapping(union)  # {'type': 'Polygon'|'MultiPolygon', 'coordinates': [...]}
 centroid = union.centroid
 
-description = (
-    "Type: OTR\n"
-    "Nationwide company/independent-contractor OTR hiring area (per TransAm's "
-    "internal Hiring Map), excluding WA, OR, ID, MT, ND, SD, CA.\n"
-    "Independent contractor: 70% of linehaul revenue + 100% of fuel surcharge, "
-    "avg gross $2,500-$6,000/week."
-)
+description = "\n".join([
+    "Type: OTR",
+    "",
+    "Pay Details",
+    "- Company long-haul drivers may be eligible for a guaranteed $1,000 gross weekly pay amount for working a full schedule and for not being responsible for any service failures or preventable accidents.",
+    "",
+    "Exact Home Time",
+    "- 3-4 Weeks Out",
+    "",
+    "Load/Unload: No Touch Freight",
+    "",
+    "Guaranteed Weekly Gross Pay",
+    "- Company long-haul drivers may be eligible for a guaranteed $1,000 gross weekly pay amount for working a full schedule and for not being responsible for any service failures or preventable accidents.",
+    "- The $1,000 gross pay includes CPM (regular and per diem) and the weekly performance bonus.",
+    "- The guarantee is measured over a predefined 4-week average and requires working a full schedule.",
+    "- If the driver works the full schedule but does not average $1,000 during the 4-week period, wages will be adjusted upward.",
+    "- Weekly period is Friday through Thursday.",
+    "- Driver must complete 30 days of employment before eligibility begins.",
+    "- Only full weeks of earnings count toward the guarantee measurement period.",
+    "- To qualify, the driver must work 22 days out of 28 days (allows 6 days home time per month).",
+    "- No service failures or preventable accidents allowed within the 4-week period.",
+    "- Driver must remain employed through the adjustment pay date; termination prior to payout disqualifies eligibility.",
+    "",
+    "Sign-On Bonus",
+    "- None at this time",
+    "",
+    "Driver Types",
+    "- Company",
+    "- Independent Contractor",
+    "",
+    "Types of Runs",
+    "- OTR Solo",
+    "",
+    "Home Time / Days Out",
+    "- Drivers must be willing to stay out 3-4 weeks at a time with 4 days home per month.",
+    "- They could be home every 2 weeks after building up home time.",
+    "- Drivers should expect 3-4 weeks out consistently.",
+    "",
+    "Primary Running Areas",
+    "- All 48 states",
+    "",
+    "Average Miles per Week",
+    "- See Information Sheet",
+    "",
+    "Touch/No-Touch Freight",
+    "- 99% no-touch freight",
+    "- 70% drop and hook",
+    "",
+    "Type of Freight",
+    "- Reefer",
+    "- General commodity and protein hauler (boxed beef, chicken, pork, and beer)",
+    "",
+    "Type of Equipment",
+    "- Kenworth T680",
+    "- Outward-facing camera only",
+    "",
+    "Transmission Type",
+    "- Automatics",
+    "- Will consider drivers with automatic restriction",
+    "",
+    "Average Age of Tractor",
+    "- 4 years or newer",
+    "",
+    "Is Truck Permanently Assigned?",
+    "- Yes",
+    "",
+    "Truck Speed",
+    "- 65 MPH",
+    "",
+    "Can Truck Be Taken Home?",
+    "- Yes",
+    "- Driver must have a safe place to park both truck and trailer",
+    "",
+    "Inverters / APU",
+    "- APU units",
+    "- Inverters",
+    "",
+    "Layover Pay",
+    "- Drivers qualify for $100 layover pay if 24 hours pass between empty call and loaded call while available for dispatch.",
+    "- Also applies when no temporary truck is available due to a truck breakdown needing repair, truck in body shop after a non-preventable accident, or the truck reaching its trade date.",
+    "",
+    "Dock Detention Pay",
+    "- None",
+    "",
+    "Multi-Stop Pay",
+    "- N/A",
+    "",
+    "New York City",
+    "- Yes, drivers will go to Hunts Point",
+    "",
+    "Insurance Starts When?",
+    "- Benefits start at 60 days of employment.",
+    "- HR benefits representative will send detailed information upon request.",
+    "",
+    "Life Insurance",
+    "- HR benefits representative will send detailed information upon request.",
+    "",
+    "401(k) Retirement Plan",
+    "- HR benefits representative will send detailed information upon request.",
+    "",
+    "Rider Policy",
+    "- Yes, passenger must be at least 10 years old.",
+    "- Only one passenger allowed; rider pass required. Cost: $19 per month.",
+    "- Rider policy begins after the driver's first home time.",
+    "- Rider not encouraged during orientation because hotel room is for one person only.",
+    "- Once in assigned equipment, driver can work with DM to complete rider process.",
+    "- Driver may request home time to pick up rider.",
+    "",
+    "Pet Policy",
+    "- No pets",
+    "",
+    "Paid Orientation",
+    "- Yes. Company Driver: $100/day. Independent Contractor: $105/day.",
+    "",
+    "How Long Is Orientation",
+    "- Company Driver: 3 days. Independent Contractor: 2 days.",
+    "- TransAm will only schedule a driver one week out.",
+    "",
+    "Orientation Location",
+    "- Olathe, KS",
+    "",
+    "Orientation Start/End",
+    "- Mondays-Wednesdays.",
+    "- Driver will go solo on day one.",
+    "",
+    "Lodging Provided",
+    "- Yes, La Quinta in Olathe, KS.",
+    "",
+    "Meals Provided",
+    "- Breakfast at hotel, lunch at TransAm, dinner on driver.",
+    "",
+    "Travel Provided",
+    "- Yes. Plane; if driver will not fly, TransAm will provide a bus ticket.",
+    "- If driver chooses a rental car, reimbursement up to $350.",
+    "",
+    "Flights",
+    "- If applicant buys their own ticket, reimbursement equals the lower of the cheapest fare found through Concur or the cost of the purchased ticket.",
+    "",
+    "Personal Vehicle",
+    "- $0.15 per mile reimbursement.",
+    "- Local LH hires reimbursed for daily travel if they drive in each day.",
+    "",
+    "Rental Car",
+    "- Reimbursed up to $325 (average airline ticket cost), rental car base cost only with itemized agreement.",
+    "- No reimbursement for extras (satellite radio, insurance, fuel options, etc.). Applies to travel days only.",
+    "",
+    "Luggage",
+    "- Reimbursement up to $45",
+    "",
+    "Trainees Accepted: No",
+    "Account Type: General Freight",
+    "Cameras: Outward Facing",
+    "Driver Type: Lease Purchase, Owner Operator",
+    "Drug Test Type: Urine Only",
+    "Experience: 3 Months",
+    "Freight Types: Dry Van, Reefer",
+    "SAP: Yes",
+    "Transmissions: Automatics",
+])
 
 record = {
-    'account': 'TransAm - Nationwide OTR Hiring Area',
+    'account': 'TransAm - OTR Solo Hiring Area',
     'category': 'OTR',
     'geom_type': geom['type'],
     'geom_data': geom['coordinates'],
     'description': description,
-    'hiring_states': hiring_states,
+    'hiring_states': HIRING_STATES,
     'center': (centroid.y, centroid.x),
 }
 
 with open('records_transam.pkl', 'wb') as f:
     pickle.dump([record], f)
 
-print(f"Mapped: 1 record, {len(hiring_states)} states, geom type {geom['type']}")
+print(f"Mapped: 1 record, {len(HIRING_STATES)} states, geom type {geom['type']}")
