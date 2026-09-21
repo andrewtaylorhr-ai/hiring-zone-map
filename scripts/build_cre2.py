@@ -156,10 +156,16 @@ for r in deduped:
     r.pop('_base_account', None)
     r.pop('_circle_key', None)
 
-# Per account request: exclude all CR England Local offers from the map.
+# Per account request: exclude CR England Local-only offers from the map,
+# but keep shared "OTR Network" merged records even if their category tag
+# says Local (those shapes represent a location shared by an OTR/Condo sheet
+# and a Local sheet, so dropping them would also remove real OTR listings).
 n_before = len(deduped)
-deduped = [r for r in deduped if r['category'] != 'Local']
-print(f"Excluded {n_before - len(deduped)} CR England Local record(s) per request.")
+deduped = [
+    r for r in deduped
+    if r['category'] != 'Local' or 'OTR Network' in r['account']
+]
+print(f"Excluded {n_before - len(deduped)} CR England Local-only record(s) per request.")
 
 with open('records_cre2.pkl', 'wb') as f:
     pickle.dump(deduped, f)
