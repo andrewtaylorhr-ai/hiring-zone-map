@@ -26,9 +26,22 @@ MANUAL_OVERRIDES = {
     "Swift - Target - Amsterdam, NY": (42.9063, -74.2290, "Amsterdam, NY"),
     "Swift - Walmart - Los Lunas, NM": (34.7658, -106.7123, "Los Lunas, NM"),
     "Swift - Walmart - Temple, TX": (31.0702, -97.4088, "Temple, TX"),
-    # "Expeditors / Star Fleet / OTR Dry Teams" intentionally excluded: the
-    # account spans ~40 states with no hub city or state at all, so there's
-    # no defensible single point to place it at.
+    # "Expeditors / Star Fleet / OTR Dry Teams" spans ~40 states with no hub
+    # city/state field filled in, but its Planning Area is "PHX - PHOENIX, AZ" -
+    # use that as the anchor point per Andrew's "add all open accounts" request.
+    "Swift - Expeditors / Star Fleet / OTR Dry Teams": (33.451, -112.0685, "Phoenix, AZ - Planning Area hub; runs ~40 states OTR"),
+}
+
+# Accounts where the "Hiring City(s)" field is formatted in a way the normal
+# parser can't extract (e.g. "GA - Savannah" with the state code first), but a
+# clean city/state is knowable from the account name or hub-city list. Used as
+# a fallback center for the normal radius-circle logic (keyed on the raw
+# Account column value, before the "Swift - " prefix is added).
+ACCOUNT_CENTER_OVERRIDES = {
+    # Account title itself names the hub; hub-city list also includes
+    # Savannah GA / McDonough GA / Darlington SC / Big Island VA, but Rincon
+    # is the named primary location and geocodes cleanly.
+    "Georgia Pacific - Rincon": (32.235632, -81.287777),
 }
 
 # ---------- Load reference data ----------
@@ -260,6 +273,8 @@ for _, row in df.iterrows():
             center = (lat, lon)
         if center is None:
             center = first_city_state(row.get(CITY_COL), row.get(STATE_COL))
+        if center is None:
+            center = ACCOUNT_CENTER_OVERRIDES.get(str(row['Account']).strip())
         if center:
             lat, lon = center
             ring = geodesic_circle(lat, lon, radius)
